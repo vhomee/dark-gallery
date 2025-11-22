@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useRouter } from 'next/navigation';
 import ExifReader from 'exifreader';
-import heic2any from 'heic2any'; // 引入转换工具
+//import heic2any from 'heic2any'; // 引入转换工具
 
 export default function UploadPage() {
   const [file, setFile] = useState(null);
@@ -19,7 +19,12 @@ export default function UploadPage() {
     if (!selectedFile) return;
 
     // 如果是 HEIC，先显示一个临时 loading 状态，因为转换需要一点时间
+    let heic2any;
     if (selectedFile.name.toLowerCase().endsWith('.heic')) {
+       // ✅ 魔法在这里：按需加载
+       const module = await import('heic2any');
+       heic2any = module.default;
+       
        setStatus('正在处理 HEIC 格式...');
     }
 
