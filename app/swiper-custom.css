@@ -1,0 +1,36 @@
+/* 自定义 Swiper 导航箭头颜色 */
+.swiper-button-next,
+.swiper-button-prev {
+  color: #c084fc !important; /* 紫色 */
+  transition: all 0.3s;
+  opacity: 0; /* 默认隐藏，鼠标悬停时显示 */
+}
+
+/* 鼠标悬停在 Hero 区域时显示箭头 */
+.group\/hero:hover .swiper-button-next,
+.group\/hero:hover .swiper-button-prev {
+  opacity: 1;
+}
+
+/* 自定义分页器小圆点 */
+.swiper-pagination-bullet {
+  background: #ffffff !important;
+  opacity: 0.5 !important;
+}
+
+.swiper-pagination-bullet-active {
+  background: #c084fc !important; /* 激活时变紫色 */
+  opacity: 1 !important;
+  width: 20px !important; /* 激活时变宽 */
+  border-radius: 4px !important;
+}
+
+/* 缓慢缩放动画 */
+@keyframes slow-zoom {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.1); }
+}
+
+.animate-slow-zoom {
+  animation: slow-zoom 10s ease-in-out infinite alternate;
+}
