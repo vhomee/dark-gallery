@@ -20,33 +20,42 @@ export default function Home() {
   // 初始化
   useEffect(() => {
     const init = async () => {
-      setLoading(true);
       // 1. 获取用户
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
-
-      // 2. 获取照片
-      await fetchPhotos();
       
-      // 3. 如果用户登录了，检查一下他点过哪些赞 (为了让红心亮起来)
-      if (user) {
-        const { data: likes } = await supabase.from('likes').select('photo_id').eq('user_id', user.id);
-        if (likes) {
-          setLikedPhotos(new Set(likes.map(l => l.photo_id)));
-        }
-      }
-      setLoading(false);
+      // 2. 立即抓取一次数据
+      await fetchPhotos();
     };
+
     init();
+
+    // 3. 【核心修改】设置心跳定时器 (每 5 秒刷新一次数据)
+    // 这样你在手机上点赞，5秒内电脑上就会自动跳变！
+    const intervalId = setInterval(() => {
+      // 为了防止刷新时页面闪烁，我们可以做一个静默刷新，不显示 loading 全屏动画
+      fetchPhotos(true); 
+    }, 5000); 
+
+    // 页面关闭时，清除定时器，防止内存泄漏
+    return () => clearInterval(intervalId);
   }, []);
 
   // 重新拉取照片列表
-  const fetchPhotos = async () => {
-    const { data, error } = await supabase
+  // 修改 fetchPhotos 函数，增加一个 silent 参数
+  const fetchPhotos = async (silent = false) => {
+    // 只有非静默模式才显示全屏 loading，防止每5秒闪一下
+    if (!silent) setLoading(true); 
+
+    const { data: photoData, error } = await supabase
       .from('photos')
       .select('*')
       .order('created_at', { ascending: false });
-    if (!error) setPhotos(data || []);
+
+    if (error) console.error('获取照片失败:', error);
+    else setPhotos(photoData || []);
+    
+    if (!silent) setLoading(false);
   };
 
   // 处理点赞逻辑
