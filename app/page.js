@@ -1,5 +1,9 @@
 'use client';
 
+// 动态引入，避免服务端渲染报错（3D通常需要在客户端渲染）
+import dynamic from 'next/dynamic';
+const ModelViewer = dynamic(() => import('../components/ModelViewer'), { ssr: false });
+
 import { useState, useEffect } from 'react';
 import { supabase } from '../utils/supabase';
 import Link from 'next/link';
@@ -163,7 +167,11 @@ export default function Home() {
                 <div key={photo.id} className="group relative bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-gray-600 transition-all hover:-translate-y-1">
                     {/* ... 内容省略，请保留原来的 ... */}
                     <div className="aspect-[4/5] overflow-hidden bg-gray-950 relative">
-                         <img src={photo.url} alt={photo.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                        {photo.media_type === 'model' ? (
+                           <ModelViewer url={photo.url} />
+                         ) : (
+                           <img src={photo.url} alt={photo.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                         )}
                          {(user?.email === ADMIN_EMAIL || user?.id === photo.user_id) && (
                             <button 
                               onClick={(e) => { e.stopPropagation(); handleDelete(photo.url, photo.id); }}

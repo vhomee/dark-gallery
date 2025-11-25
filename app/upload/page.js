@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useRouter } from 'next/navigation';
 import ExifReader from 'exifreader';
-//import heic2any from 'heic2any'; // 引入转换工具
+// 动态加载 heic2any
+// import heic2any from 'heic2any'; 
 
 export default function UploadPage() {
   const [file, setFile] = useState(null);
@@ -18,20 +19,28 @@ export default function UploadPage() {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
-    // 如果是 HEIC，先显示一个临时 loading 状态，因为转换需要一点时间
+    // 1. 检查文件类型
+    const fileName = selectedFile.name.toLowerCase();
+    const isModel = fileName.endsWith('.glb');
+    const isHeic = fileName.endsWith('.heic');
+
+    // 2. 如果是 HEIC，动态加载转换库
     let heic2any;
-    if (selectedFile.name.toLowerCase().endsWith('.heic')) {
-       // ✅ 魔法在这里：按需加载
+    if (isHeic) {
+       setStatus('正在加载转换引擎...');
        const module = await import('heic2any');
        heic2any = module.default;
-       
        setStatus('正在处理 HEIC 格式...');
     }
 
     setFile(selectedFile);
     
-    // 生成预览图 (如果是 HEIC，浏览器无法直接预览，这里尝试转换后预览，或者直接用 FileReader)
-    if (selectedFile.name.toLowerCase().endsWith('.heic')) {
+    // 3. 生成预览
+    if (isModel) {
+      // 📦 模型显示图标
+      setPreview('3d-model');
+    } else if (isHeic) {
+        // HEIC 转换预览
         try {
             const convertedBlob = await heic2any({
                 blob: selectedFile,
@@ -43,53 +52,67 @@ export default function UploadPage() {
             console.error(err);
         }
     } else {
+        // 普通图片直接预览
         setPreview(URL.createObjectURL(selectedFile));
     }
     setStatus('');
   };
 
   const handleUpload = async () => {
-    if (!file) return alert('请先选择一张照片');
+    if (!file) return alert('请先选择文件');
     setLoading(true);
-    setStatus('正在分析照片信息...');
+    setStatus('正在分析文件...');
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('请先登录');
 
-      // 1. 读取原始文件的 EXIF (即使是 HEIC，ExifReader 也能读)
-      const tags = await ExifReader.load(file);
-      const exifData = {
-        camera: tags['Model']?.description || 'Unknown Camera',
-        lens: tags['LensModel']?.description || '',
-        iso: tags['ISOSpeedRatings']?.description || '',
-        fstop: tags['FNumber']?.description || '',
-        shutter: tags['ExposureTime']?.description || '',
-        date: tags['DateTimeOriginal']?.description || new Date().toISOString(),
-      };
+      const fileNameLower = file.name.toLowerCase();
+      const isModel = fileNameLower.endsWith('.glb');
+      const isHeic = fileNameLower.endsWith('.heic');
 
-      // 2. 格式转换逻辑
-      let fileToUpload = file;
-      let fileExt = file.name.split('.').pop().toLowerCase();
+      // 🛑 【关键修复】如果是模型，跳过 EXIF 读取
+      let exifData = {}; 
       
-      // 如果是 heic，转换成 jpeg
-      if (fileExt === 'heic') {
+      if (!isModel) {
+        try {
+          const tags = await ExifReader.load(file);
+          exifData = {
+            camera: tags['Model']?.description || 'Unknown Camera',
+            lens: tags['LensModel']?.description || '',
+            iso: tags['ISOSpeedRatings']?.description || '',
+            fstop: tags['FNumber']?.description || '',
+            shutter: tags['ExposureTime']?.description || '',
+            date: tags['DateTimeOriginal']?.description || new Date().toISOString(),
+          };
+        } catch (e) {
+          console.warn('EXIF读取失败，可能是非标准图片', e);
+        }
+      }
+
+      // 2. 格式转换逻辑 (仅针对 HEIC)
+      let fileToUpload = file;
+      let fileExt = fileNameLower.split('.').pop();
+      
+      if (isHeic) {
+        const module = await import('heic2any');
+        const heic2any = module.default;
+
         setStatus('正在转换 HEIC 格式...');
         const convertedBlob = await heic2any({
             blob: file,
             toType: "image/jpeg",
-            quality: 0.8 // 压缩质量 0.8，既清晰又省流量
+            quality: 0.8
         });
-        // 把 Blob 变成 File 对象
         fileToUpload = new File([convertedBlob], file.name.replace(/\.heic$/i, ".jpg"), {
             type: "image/jpeg"
         });
         fileExt = 'jpg';
       }
 
-      setStatus('正在上传图片到云端...');
+      setStatus('正在上传到云端...');
 
-      // 3. 上传处理后的文件
+      // 3. 上传
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
 
@@ -111,11 +134,12 @@ export default function UploadPage() {
         .from('photos')
         .insert([
           {
-            title: title || '无题',
+            title: title || (isModel ? '未命名模型' : '无题'),
             url: publicUrl,
             user_id: user.id,
             user_email: user.email,
-            exif_data: exifData,
+            exif_data: exifData, // 模型为空，图片有数据
+            media_type: isModel ? 'model' : 'image', // 标记类型
           },
         ]);
 
@@ -139,27 +163,34 @@ export default function UploadPage() {
         </h1>
 
         <div className="space-y-6">
-          <div className="border-2 border-dashed border-gray-800 rounded-xl p-8 text-center bg-gray-900 relative">
-            {/* 加一个 Loading 提示，因为 HEIC 转换需要几秒钟 */}
+          <div className="border-2 border-dashed border-gray-800 rounded-xl p-8 text-center bg-gray-900 relative min-h-[300px] flex flex-col items-center justify-center">
             {status && status.includes('处理') && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10 text-purple-400 font-bold">
                     {status}
                 </div>
             )}
             
-            {preview ? (
+            {preview === '3d-model' ? (
+              <div className="text-purple-400 flex flex-col items-center animate-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-20 h-20 mb-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                </svg>
+                <span className="font-bold">3D 模型已就绪</span>
+                <span className="text-xs text-gray-500 mt-2">{file?.name}</span>
+              </div>
+            ) : preview ? (
               <img src={preview} alt="Preview" className="max-h-[400px] mx-auto rounded shadow-lg" />
             ) : (
               <div className="text-gray-500 py-12">
-                <p>点击下方选择图片</p>
-                <p className="text-xs mt-2">支持 JPG, PNG, HEIC (iPhone)</p>
+                <p>点击下方选择 图片 或 3D模型(.glb)</p>
+                <p className="text-xs mt-2">支持 JPG, PNG, HEIC, GLB</p>
               </div>
             )}
           </div>
 
           <input
             type="file"
-            accept="image/*,.heic" 
+            accept="image/*,.heic,.glb" 
             onChange={handleFileChange}
             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-gray-700"
           />
@@ -170,7 +201,7 @@ export default function UploadPage() {
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="给这张照片起个名字..."
+              placeholder="给它起个名字..."
               className="w-full bg-black border border-gray-800 rounded-lg px-4 py-3 focus:outline-none focus:border-purple-500"
             />
           </div>
