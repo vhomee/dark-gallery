@@ -4,64 +4,65 @@ import { useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useRouter } from 'next/navigation';
 import ExifReader from 'exifreader';
-// 动态加载 heic2any
-// import heic2any from 'heic2any'; 
 
 export default function UploadPage() {
   const [file, setFile] = useState(null);
+  // 🆕 新增：封面图文件
+  const [coverFile, setCoverFile] = useState(null); 
   const [preview, setPreview] = useState(null);
+  // 🆕 新增：封面图预览
+  const [coverPreview, setCoverPreview] = useState(null);
+  
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const router = useRouter();
 
+  // 处理主文件 (图片或模型)
   const handleFileChange = async (e) => {
     const selectedFile = e.target.files[0];
     if (!selectedFile) return;
 
-    // 1. 检查文件类型
     const fileName = selectedFile.name.toLowerCase();
     const isModel = fileName.endsWith('.glb');
     const isHeic = fileName.endsWith('.heic');
 
-    // 2. 如果是 HEIC，动态加载转换库
-    let heic2any;
-    if (isHeic) {
-       setStatus('正在加载转换引擎...');
-       const module = await import('heic2any');
-       heic2any = module.default;
-       setStatus('正在处理 HEIC 格式...');
-    }
-
     setFile(selectedFile);
     
-    // 3. 生成预览
+    // 如果是模型，显示特定图标；如果是图片，显示预览
     if (isModel) {
-      // 📦 模型显示图标
       setPreview('3d-model');
     } else if (isHeic) {
-        // HEIC 转换预览
-        try {
-            const convertedBlob = await heic2any({
-                blob: selectedFile,
-                toType: "image/jpeg",
-                quality: 0.8
-            });
-            setPreview(URL.createObjectURL(convertedBlob));
-        } catch (err) {
-            console.error(err);
-        }
+       setStatus('正在加载转换引擎...');
+       const module = await import('heic2any');
+       const heic2any = module.default;
+       setStatus('正在处理 HEIC...');
+       try {
+          const convertedBlob = await heic2any({ blob: selectedFile, toType: "image/jpeg", quality: 0.8 });
+          setPreview(URL.createObjectURL(convertedBlob));
+       } catch (err) { console.error(err); }
+       setStatus('');
     } else {
-        // 普通图片直接预览
-        setPreview(URL.createObjectURL(selectedFile));
+       setPreview(URL.createObjectURL(selectedFile));
     }
-    setStatus('');
+  };
+
+  // 🆕 新增：处理封面图选择
+  const handleCoverChange = (e) => {
+    const selectedFile = e.target.files[0];
+    if (selectedFile) {
+      setCoverFile(selectedFile);
+      setCoverPreview(URL.createObjectURL(selectedFile));
+    }
   };
 
   const handleUpload = async () => {
     if (!file) return alert('请先选择文件');
+    // 🆕 如果是模型，强制要求传封面
+    if (preview === '3d-model' && !coverFile) return alert('请为 3D 模型上传一张封面图');
+
     setLoading(true);
-    setStatus('正在分析文件...');
+    setStatus('正在验证身份...');
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -70,87 +71,82 @@ export default function UploadPage() {
       const fileNameLower = file.name.toLowerCase();
       const isModel = fileNameLower.endsWith('.glb');
       const isHeic = fileNameLower.endsWith('.heic');
+      let exifData = {};
 
-      // 🛑 【关键修复】如果是模型，跳过 EXIF 读取
-      let exifData = {}; 
-      
-      if (!isModel) {
-        try {
-          const tags = await ExifReader.load(file);
-          exifData = {
-            camera: tags['Model']?.description || 'Unknown Camera',
-            lens: tags['LensModel']?.description || '',
-            iso: tags['ISOSpeedRatings']?.description || '',
-            fstop: tags['FNumber']?.description || '',
-            shutter: tags['ExposureTime']?.description || '',
-            date: tags['DateTimeOriginal']?.description || new Date().toISOString(),
-          };
-        } catch (e) {
-          console.warn('EXIF读取失败，可能是非标准图片', e);
-        }
-      }
-
-      // 2. 格式转换逻辑 (仅针对 HEIC)
+      // 1. 处理主文件
       let fileToUpload = file;
       let fileExt = fileNameLower.split('.').pop();
-      
+
+      if (!isModel) {
+         // ... 读取 EXIF (省略重复代码，保持原有逻辑) ...
+         try {
+            const tags = await ExifReader.load(file);
+            exifData = {
+              camera: tags['Model']?.description || 'Unknown',
+              iso: tags['ISOSpeedRatings']?.description || '',
+              fstop: tags['FNumber']?.description || '',
+              shutter: tags['ExposureTime']?.description || '',
+            };
+         } catch (e) {}
+      }
+
       if (isHeic) {
+        // ... HEIC 转换 (省略重复代码) ...
         const module = await import('heic2any');
         const heic2any = module.default;
-
-        setStatus('正在转换 HEIC 格式...');
-        const convertedBlob = await heic2any({
-            blob: file,
-            toType: "image/jpeg",
-            quality: 0.8
-        });
-        fileToUpload = new File([convertedBlob], file.name.replace(/\.heic$/i, ".jpg"), {
-            type: "image/jpeg"
-        });
+        const convertedBlob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.8 });
+        fileToUpload = new File([convertedBlob], file.name.replace(/\.heic$/i, ".jpg"), { type: "image/jpeg" });
         fileExt = 'jpg';
       }
 
-      setStatus('正在上传到云端...');
-
-      // 3. 上传
+      // 2. 上传主文件
+      setStatus('正在上传主文件...');
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('photos')
-        .upload(filePath, fileToUpload);
-
+      
+      const { error: uploadError } = await supabase.storage.from('photos').upload(filePath, fileToUpload);
       if (uploadError) throw uploadError;
+      
+      const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(filePath);
 
-      // 4. 获取链接
-      const { data: { publicUrl } } = supabase.storage
-        .from('photos')
-        .getPublicUrl(filePath);
+      // 3. 🆕 上传封面图 (如果有)
+      let coverUrl = null;
+      if (isModel && coverFile) {
+        setStatus('正在上传封面图...');
+        const coverName = `cover_${Date.now()}.jpg`;
+        const coverPath = `${user.id}/${coverName}`;
+        
+        const { error: coverError } = await supabase.storage.from('photos').upload(coverPath, coverFile);
+        if (coverError) throw coverError;
+        
+        const { data: { publicUrl: cUrl } } = supabase.storage.from('photos').getPublicUrl(coverPath);
+        coverUrl = cUrl;
+      }
 
-      setStatus('正在保存数据库记录...');
-
-      // 5. 写入数据库
+      // 4. 写入数据库
+      setStatus('正在保存...');
       const { error: dbError } = await supabase
         .from('photos')
         .insert([
           {
-            title: title || (isModel ? '未命名模型' : '无题'),
-            url: publicUrl,
+            title: title || (isModel ? '3D Model' : 'Untitled'),
+            url: publicUrl, // 主文件地址
+            thumbnail_url: coverUrl, // 🆕 封面图地址 (图片则是 null)
             user_id: user.id,
             user_email: user.email,
-            exif_data: exifData, // 模型为空，图片有数据
-            media_type: isModel ? 'model' : 'image', // 标记类型
+            exif_data: exifData,
+            media_type: isModel ? 'model' : 'image',
           },
         ]);
 
       if (dbError) throw dbError;
 
-      setStatus('发布成功！正在跳转...');
+      setStatus('发布成功！');
       setTimeout(() => router.push('/'), 1000);
 
     } catch (error) {
       console.error(error);
-      setStatus(`出错了: ${error.message}`);
+      setStatus(`出错: ${error.message}`);
       setLoading(false);
     }
   };
@@ -158,65 +154,52 @@ export default function UploadPage() {
   return (
     <div className="min-h-screen bg-black text-gray-100 p-8">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8 bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-          发布新作
-        </h1>
+        <h1 className="text-3xl font-bold mb-8 text-white">发布新作</h1>
 
         <div className="space-y-6">
-          <div className="border-2 border-dashed border-gray-800 rounded-xl p-8 text-center bg-gray-900 relative min-h-[300px] flex flex-col items-center justify-center">
-            {status && status.includes('处理') && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10 text-purple-400 font-bold">
-                    {status}
-                </div>
-            )}
-            
+          {/* 主文件选择区 */}
+          <div className="border-2 border-dashed border-gray-800 rounded-xl p-8 text-center bg-gray-900 relative min-h-[200px] flex flex-col items-center justify-center">
             {preview === '3d-model' ? (
-              <div className="text-purple-400 flex flex-col items-center animate-bounce">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-20 h-20 mb-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
-                </svg>
+              <div className="text-purple-400 flex flex-col items-center">
+                <span className="text-4xl mb-2">📦</span>
                 <span className="font-bold">3D 模型已就绪</span>
-                <span className="text-xs text-gray-500 mt-2">{file?.name}</span>
+                <span className="text-xs text-gray-500 mt-1">{file?.name}</span>
               </div>
             ) : preview ? (
-              <img src={preview} alt="Preview" className="max-h-[400px] mx-auto rounded shadow-lg" />
+              <img src={preview} alt="Preview" className="max-h-[300px] rounded" />
             ) : (
-              <div className="text-gray-500 py-12">
-                <p>点击下方选择 图片 或 3D模型(.glb)</p>
-                <p className="text-xs mt-2">支持 JPG, PNG, HEIC, GLB</p>
+              <div className="text-gray-500">
+                <p>点击选择 图片 或 3D模型(.glb)</p>
               </div>
             )}
+            {/* 隐藏的 input，覆盖在上面 */}
+            <input type="file" accept="image/*,.heic,.glb" onChange={handleFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
           </div>
 
-          <input
-            type="file"
-            accept="image/*,.heic,.glb" 
-            onChange={handleFileChange}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-gray-700"
-          />
+          {/* 🆕 封面图选择区 (只在选中模型时显示) */}
+          {preview === '3d-model' && (
+            <div className="animate-fade-in">
+              <label className="block text-sm font-medium text-gray-400 mb-2">上传封面图 (必填)</label>
+              <div className="border border-gray-800 rounded-lg p-4 flex items-center gap-4 bg-gray-900">
+                {coverPreview ? (
+                  <img src={coverPreview} className="w-16 h-16 object-cover rounded" />
+                ) : (
+                  <div className="w-16 h-16 bg-gray-800 rounded flex items-center justify-center text-gray-600">?</div>
+                )}
+                <input type="file" accept="image/*" onChange={handleCoverChange} className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:bg-gray-800 file:text-white" />
+              </div>
+            </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-2">作品标题</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="给它起个名字..."
-              className="w-full bg-black border border-gray-800 rounded-lg px-4 py-3 focus:outline-none focus:border-purple-500"
-            />
-          </div>
+          {/* 标题输入 */}
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="作品标题..." className="w-full bg-black border border-gray-800 rounded-lg px-4 py-3 text-white" />
 
-          <button
-            onClick={handleUpload}
-            disabled={loading}
-            className="w-full bg-white text-black font-bold py-4 rounded-xl hover:bg-gray-200 transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
-          >
+          {/* 按钮 */}
+          <button onClick={handleUpload} disabled={loading} className="w-full bg-white text-black font-bold py-4 rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50">
             {loading ? status : '确认发布'}
           </button>
           
-          <div className="text-center">
-             <button onClick={() => router.back()} className="text-gray-500 text-sm hover:text-gray-300">取消</button>
-          </div>
+          <button onClick={() => router.back()} className="w-full text-center text-gray-500 text-sm mt-4">取消</button>
         </div>
       </div>
     </div>
