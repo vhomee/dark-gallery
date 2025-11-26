@@ -28,3 +28,9 @@ body {
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 👇 强制全局黑底，解决白屏闪烁 */
+html, body {
+  background-color: #000000 !important;
+  color: #ffffff;
+}
