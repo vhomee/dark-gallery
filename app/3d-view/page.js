@@ -4,43 +4,43 @@ import React, { Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 
-// 1. 动态引入 3D 播放器 (关闭 SSR)
 const ModelViewer = dynamic(() => import('../../components/ModelViewer'), { 
-  ssr: false
+  ssr: false,
+  loading: () => (
+    // 加载过程也是黑底紫字
+    <div className="flex items-center justify-center w-screen h-screen bg-black text-purple-500 font-bold animate-pulse">
+      正在加载 3D 引擎...
+    </div>
+  )
 });
 
-// 2. 把“读取 URL”的逻辑剥离成一个内部组件
 function ViewerContent() {
   const searchParams = useSearchParams();
   const modelUrl = searchParams.get('url');
 
   if (!modelUrl) {
-    return (
-      <div className="flex items-center justify-center w-screen h-screen bg-black text-gray-500">
-        未提供模型链接
-      </div>
-    );
+    return <div className="w-screen h-screen bg-black text-white">Error: No URL</div>;
   }
 
-  return <ModelViewer url={modelUrl} />;
+  // 🔴 关键修复：给 ModelViewer 的容器强制加上黑色背景和全屏尺寸
+  return (
+    <div className="w-screen h-screen bg-black absolute inset-0 overflow-hidden">
+      <ModelViewer url={modelUrl} />
+    </div>
+  );
 }
 
-// 3. 主页面：只负责提供“安全气泡” (Suspense)
 export default function Mobile3DPage() {
   return (
-    <div className="w-screen h-screen bg-black overflow-hidden relative">
-      {/* ⚠️ 关键修复：用 Suspense 包裹住使用 useSearchParams 的组件 */}
+    // 🔴 关键修复：最外层也是全黑，防止边缘漏光
+    <div className="w-screen h-screen bg-black overflow-hidden fixed inset-0 z-[9999]">
       <Suspense fallback={
-        <div className="flex items-center justify-center w-screen h-screen bg-black text-purple-500 font-bold animate-pulse">
-          正在加载 3D 引擎...
+        <div className="w-screen h-screen bg-black flex items-center justify-center">
+          <span className="text-purple-500">Loading...</span>
         </div>
       }>
         <ViewerContent />
       </Suspense>
-      
-      <div className="absolute top-4 left-4 z-50 text-white/50 text-xs pointer-events-none">
-        Powered by Dark Gallery Web
-      </div>
     </div>
   );
 }
