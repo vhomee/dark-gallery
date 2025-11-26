@@ -1,37 +1,52 @@
+// @ts-ignore
 'use client';
 
-import React, { Suspense } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Stage, useGLTF } from '@react-three/drei';
-
-// 这是核心：加载并渲染 GLTF/GLB 模型
-function Model({ url }) {
-  const { scene } = useGLTF(url);
-  // <primitive> 是 R3F 用来渲染原生 Three.js 对象的
-  return <primitive object={scene} />;
-}
+import React, { useEffect } from 'react';
 
 export default function ModelViewer({ url }) {
+  
+  useEffect(() => {
+    // 动态引入 model-viewer 核心文件 (仅在客户端加载)
+    import('@google/model-viewer');
+  }, []);
+
   return (
-    <div className="w-full h-full bg-gray-900 rounded-xl overflow-hidden relative">
-      {/* 3D 画布 */}
-      <Canvas shadows dpr={[1, 2]} camera={{ fov: 50 }}>
-        {/* Suspense 是 React 的等待机制，模型加载完之前显示 fallback */}
-        <Suspense fallback={null}>
-          {/* Stage 是 Drei 提供的“舞台”，自动帮你打光、居中模型，超好用 */}
-          <Stage environment="city" intensity={0.6}>
-            <Model url={url} />
-          </Stage>
-        </Suspense>
-        
-        {/* 轨道控制器：允许用户旋转、缩放 */}
-        <OrbitControls autoRotate autoRotateSpeed={0.5} makeDefault />
-      </Canvas>
+    <div className="w-full h-full bg-black relative flex items-center justify-center">
       
-      {/* 右下角加个 3D 标志 */}
-      <div className="absolute bottom-4 right-4 bg-black/50 text-white text-xs px-2 py-1 rounded border border-white/20">
-        3D VIEW
-      </div>
+      {/* Google Model Viewer 组件 
+        - src: 模型链接
+        - camera-controls: 允许用户旋转缩放
+        - auto-rotate: 自动旋转
+        - ar: 开启 AR 模式 (Android/iOS 支持的话会出现 AR 按钮)
+        - shadow-intensity: 阴影强度
+        - touch-action="pan-y": 优化移动端触摸
+      */}
+      <model-viewer
+        src={url}
+        camera-controls
+        auto-rotate
+        ar
+        ar-modes="webxr scene-viewer quick-look"
+        shadow-intensity="1"
+        camera-orbit="45deg 55deg 2.5m"
+        field-of-view="30deg"
+        style={{ width: '100%', height: '100%', backgroundColor: '#000000' }}
+      >
+        {/* 加载时的进度条插槽 */}
+        <div slot="progress-bar" className="absolute top-0 left-0 w-full h-1 bg-gray-800">
+          <div className="h-full bg-purple-500 progress-bar-value"></div>
+        </div>
+
+        {/* 加载失败时的提示 */}
+        <div slot="error" className="absolute inset-0 flex items-center justify-center text-white/50">
+           无法加载模型
+        </div>
+        
+        {/* 自定义加载中海报 (可选) */}
+        <div slot="poster" className="flex items-center justify-center w-full h-full bg-black text-purple-500 font-bold animate-pulse">
+           Loading Model...
+        </div>
+      </model-viewer>
     </div>
   );
 }
