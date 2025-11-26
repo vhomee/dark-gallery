@@ -32,11 +32,15 @@ function ViewerContent() {
 
 export default function Mobile3DPage() {
   return (
-    // 🔴 关键修复：最外层也是全黑，防止边缘漏光
-    <div className="w-screen h-screen bg-black overflow-hidden fixed inset-0 z-[9999]">
+    // 🔴 加了 style={{ backgroundColor: '#000' }}
+    <div 
+      className="w-screen h-screen bg-black overflow-hidden fixed inset-0 z-[9999]"
+      style={{ backgroundColor: '#000000' }} 
+    >
       <Suspense fallback={
-        <div className="w-screen h-screen bg-black flex items-center justify-center">
-          <span className="text-purple-500">Loading...</span>
+        <div className="w-screen h-screen bg-black flex items-center justify-center" style={{ backgroundColor: '#000000' }}>
+          {/* 这里可以加个紫色的 Loading 文字，让用户知道没死机 */}
+          <span className="text-purple-500 font-bold animate-pulse">Loading 3D Engine...</span>
         </div>
       }>
         <ViewerContent />
